@@ -1,4 +1,11 @@
-CONFIG_FILES_ERR = 'Nie znaleziono plików konfiguracyjnych, jeżeli to pierwsze uruchomienie, wpisz dane logowania do pliku "credentials.json", dostosuj "config.json" i uruchom ponownie program!'
-CREDENTIALS_FILE_NOT_SET = 'Nie znaleziono danych logowania, wpisz dane logowania do pliku "credentials.json" i uruchom ponownie program!'
+CONFIG_FILES_ERR = (
+    'Nie znaleziono lub nie uzupełniono plików konfiguracyjnych. '
+    'Uzupełnij "credentials.json" i w razie potrzeby dostosuj "config.json", '
+    'a następnie uruchom program ponownie!'
+)
+CREDENTIALS_FILE_NOT_SET = (
+    'Nie znaleziono danych logowania. '
+    'Uzupełnij "credentials.json" i uruchom program ponownie!'
+)
 CHANNEL_FOUND = 'Znaleziono kanał: {}   ->   link: {}'
 CHANNEL_NOT_FOUND = 'Nie znaleziono kanału: {}'

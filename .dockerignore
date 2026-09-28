@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.git/
+.gitignore
+.venv/
+venv/
+data/
+*.zip
+README.md

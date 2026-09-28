@@ -1,37 +1,43 @@
-import helpers
 import json
 
+import helpers
+import const
 from api import API
 from proxy import PROXY
 
-helpers.disableWinConSole()
 
-if helpers.checkFiles():
-    with open(helpers.files[0], 'r') as openfile:
-        CONFIG = json.loads(json.load(openfile))
-        helpers.debug = CONFIG['debug']
-    
-    with open(helpers.files[1], 'r') as openfile:
-        CREDENTIALS = json.loads(json.load(openfile))
+def main():
+    files_ready, credentials_ready = helpers.check_files()
 
-    try:
-        with open(helpers.files[2], 'r') as openfile:
-            COOKIES = json.loads(json.load(openfile))
-    except:
-            COOKIES = ''
+    if not files_ready or not credentials_ready:
+        helpers.log(helpers.ERROR, const.CONFIG_FILES_ERR)
+        return
 
-    jambox = API(CREDENTIALS, COOKIES)
+    config = helpers.load_json(helpers.files[0])
+    credentials = helpers.load_json(helpers.files[1])
+    cookie = helpers.load_json(helpers.files[2])
 
-    if(helpers.checkChannels()):
-        helpers.exportChannels(jambox, CONFIG['hls'])
-    
-    if(helpers.checkList()):
-        helpers.exportList(CONFIG['host'], CONFIG['port'])
+    helpers.set_debug(config.get('debug', False))
 
-    with open(helpers.channelsFile, 'r') as openfile:
-        channels = json.loads(openfile.read())
+    jambox = API(credentials, cookie)
 
-    with open(helpers.files[2], 'r') as openfile:
-        COOKIES = json.loads(json.load(openfile))
+    if helpers.check_channels():
+        helpers.export_channels(jambox, config.get('hls', True))
 
-    PROXY(jambox, channels, CONFIG['host'], CONFIG['port'], CONFIG['threaded'], COOKIES, CONFIG['debug'])
+    if helpers.check_list():
+        helpers.export_list(config['host'], config['port'])
+
+    channels = helpers.load_json(helpers.channels_file)
+
+    PROXY(
+        jambox=jambox,
+        channels=channels,
+        port=config['port'],
+        threaded=config['threaded'],
+        cookie=helpers.load_json(helpers.files[2]),
+        debug=config['debug'],
+    )
+
+
+if __name__ == '__main__':
+    main()

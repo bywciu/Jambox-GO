@@ -1,88 +1,137 @@
-from flask import Flask, Response
-import requests
-import json
-import urllib.parse
-from os import path
-import datetime
-import os
-import time
 import logging
+import time
+from urllib.parse import urlencode, urljoin
 
-from helpers import log, DEBUG
+import requests
+from flask import Flask, Response, abort
 
-class PROXY():
-    
-    def __init__(self, jambox, channels, host, port, threaded, cookie, debug):
+from helpers import DEBUG, log
+
+
+class PROXY:
+    def __init__(
+        self,
+        jambox,
+        channels,
+        port,
+        threaded,
+        cookie,
+        debug,
+    ):
         self.jambox = jambox
         self.token = ''
-        self.user  = ''
+        self.user = ''
         self.channels = channels
         self.cookie = cookie
+        self.session = requests.Session()
 
         self.app = Flask('Jambox Go decoder')
-        logger = logging.getLogger('werkzeug')
-        logger.setLevel(logging.ERROR)
 
-        self.app.route("/<id>")(self.channel)
-        self.app.run(host=host, port=port, threaded=threaded)
+        logging.getLogger('werkzeug').setLevel(
+            logging.INFO if debug else logging.WARNING
+        )
 
+        self.app.route('/<int:channel_id>')(self.channel)
+
+        self.app.run(
+            host='0.0.0.0',
+            port=int(port),
+            threaded=bool(threaded),
+        )
+
+    def _refresh_token(self):
+        response = self.jambox.get_token()
+        query = response.decode('utf-8').split('"')[3]
+
+        self.token = query.replace('\\', '')
+        self.user = self.cookie.get('id', '').strip('\\')
+
+        log(
+            DEBUG,
+            'New token: {} user: {}'.format(
+                self.token[:10] + '************',
+                self.user[:10] + '************',
+            ),
+        )
 
     def req(self, url):
-        r = requests.get(url=url)
-        if(r.status_code == 404):
-            for i in range(200):
+        response = self.session.get(url, timeout=15)
+
+        if response.status_code == 404:
+            for retry in range(200):
                 time.sleep(0.005)
-                r = requests.get(url=url)
-                if(r.status_code == 200):
-                    log(DEBUG, '404 retires {}'.format(i))
+                response = self.session.get(url, timeout=15)
+                if response.status_code == 200:
+                    log(DEBUG, '404 retries {}'.format(retry))
                     break
 
-        if(r.status_code == 403):
-            query = self.jambox.getToken().decode().split('"')[3]
-            self.token = urllib.parse.quote(query, safe='')
-            self.token = self.token.replace('%5C', '')
-            self.user = self.cookie.get('id')
-            self.user = self.user.strip('\\')
-            self.user = urllib.parse.quote(self.user, safe='')
-            log(DEBUG, 'New token: {} user: {}'.format(self.token[0:10] + '************', self.user[0:10] + '************'))
-        return r
+        if response.status_code == 403:
+            self._refresh_token()
 
+        return response
 
-    def channel(self, id):
-        log(DEBUG, 'CHANNEL: {}'.format(self.channels[int(id)][0]))
+    def get_channel_playlist(self, channel_id):
+        channel_name, channel_url = self.channels[channel_id]
+        log(DEBUG, 'CHANNEL: {}'.format(channel_name))
 
-        my_str = self.channels[int(id)][1]
-        idx = my_str.index('playlist.m3u8')
-        my_str = my_str[:idx] + 'high/' + my_str[idx:]
-        
-        log(DEBUG, 'Reqest url: {}'.format(my_str))
+        playlist_url = channel_url.replace(
+            'playlist.m3u8',
+            'high/playlist.m3u8',
+            1,
+        )
+        url = '{}?{}'.format(
+            playlist_url,
+            urlencode({
+                'token': self.token,
+                'hash': self.user,
+            }),
+        )
 
-        url = '{}?token={}&hash={}'.format(my_str, self.token, self.user)
-        
-        r = self.req(url)
+        log(DEBUG, 'Request url: {}'.format(playlist_url))
+        response = self.req(url)
 
-        if(r.status_code != 200):
-            url = '{}?token={}&hash={}'.format(my_str, self.token, self.user)
-            r = self.req(url)
-        
-        file = r.content.decode().split('\n')
-        key = file[2].split('URI="')[1]
-        channel_url = file[6].split('/hls_scr_aac')[0]
+        if response.status_code == 403:
+            url = '{}?{}'.format(
+                playlist_url,
+                urlencode({
+                    'token': self.token,
+                    'hash': self.user,
+                }),
+            )
+            response = self.req(url)
 
-        file[2] = '#EXT-X-KEY:METHOD=AES-128,URI="'+channel_url+key
+        if response.status_code != 200:
+            return None, response.status_code
 
-        index1 = file[6].find('playlist')
-        index2 = file[6].find('.', index1)
+        lines = response.text.splitlines()
 
-        chunk = int(file[6][index1+8:index2])
-        log(DEBUG, 'Playing chunks: {}, {}, {}'.format(chunk-1, chunk, chunk+1))
+        for index, line in enumerate(lines):
+            if line.startswith('#EXT-X-KEY:') and 'URI="' in line:
+                prefix, uri = line.split('URI="', 1)
+                uri, suffix = uri.split('"', 1)
 
-        file[6].replace('playlist{}'.format(chunk), 'playlist{}'.format(chunk-1))
-        file[8].replace('playlist{}'.format(chunk+1), 'playlist{}'.format(chunk))
-        file[10].replace('playlist{}'.format(chunk+2), 'playlist{}'.format(chunk+1))
+                lines[index] = '{}URI="{}"{}'.format(
+                    prefix,
+                    urljoin(response.url, uri),
+                    suffix,
+                )
 
-        out = ""
-        for line in file:
-            out = out + line + "\n"
+        return '\n'.join(lines) + '\n', 200
 
-        return Response(out, mimetype='text/plain', headers={'Content-disposition': 'attachment; filename=playlist.m3u8'})
+    def channel(self, channel_id):
+        if channel_id < 0 or channel_id >= len(self.channels):
+            abort(404)
+
+        manifest, status = self.get_channel_playlist(channel_id)
+
+        if manifest is None:
+            return Response(
+                'Unable to retrieve channel playlist',
+                status=status,
+                mimetype='text/plain',
+            )
+
+        return Response(
+            manifest,
+            mimetype='application/vnd.apple.mpegurl',
+        )
