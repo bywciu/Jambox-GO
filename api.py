@@ -1,16 +1,12 @@
 import base64
 import hashlib
 import hmac
-import json
 import math
 import random
 import string
 import time
-
 import requests
-
 import helpers
-
 
 class API:
     def __init__(self, credentials, cookie):
@@ -142,3 +138,15 @@ class API:
         url = self.api_url + endpoint
         headers = self.get_auth_headers(self.auth(endpoint))
         return requests.get(url, headers=headers, timeout=15)
+
+    def get_epg_chunk(self, chunk, asset_ids):
+        assets = ','.join(str(asset_id) for asset_id in asset_ids)
+        endpoint = 'v1/epg/chunk/{}/assets/{}'.format(chunk, assets)
+        url = self.api_url + endpoint
+        headers = self.get_auth_headers(self.auth(endpoint))
+        response = requests.get(url, headers=headers, timeout=15)
+        helpers.log(
+            helpers.DEBUG,
+            'EPG chunk {} status: {}'.format(chunk, response.status_code),
+        )
+        return response
