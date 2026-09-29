@@ -2,6 +2,7 @@ import datetime
 import json
 import time
 from pathlib import Path
+import requests
 import const
 
 DEBUG = 'debug'
@@ -17,6 +18,8 @@ files = [
     DATA_DIR / 'cookie.json',
 ]
 channels_file = DATA_DIR / 'channels.list'
+
+CHANNEL_LOGO_URL = 'https://static.sgtsa.pl/channels/logos/{}.png'
 
 CONFIG = {
     'host': '127.0.0.1',
@@ -83,6 +86,25 @@ def check_files():
 
     return True, True
 
+def get_channel_logo(sgtid):
+    url = CHANNEL_LOGO_URL.format(sgtid)
+
+    try:
+        response = requests.head(
+            url,
+            timeout=5,
+            allow_redirects=True,
+        )
+
+        if response.status_code == 200:
+            content_type = response.headers.get('Content-Type', '').lower()
+            if content_type.startswith('image/'):
+                return url
+    except requests.RequestException:
+        pass
+
+    return None
+
 def export_channels(api, hls):
     uuid_f = '5234b234-647a-47b9-8441-b21ed321140'
     channel_list = []
@@ -99,6 +121,7 @@ def export_channels(api, hls):
             except (TypeError, ValueError):
                 number = counter
             epg_mapping_id = channel.get('epg_mapping_id')
+            logo = get_channel_logo(sgtid)
 
             if hls:
                 live = channel['url']['hlsAac']
@@ -116,6 +139,7 @@ def export_channels(api, hls):
                 'sgtid': sgtid,
                 'epg_mapping_id': epg_mapping_id,
                 'number': number,
+                'logo': logo,
             })
             log(
                 INFO,

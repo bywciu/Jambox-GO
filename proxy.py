@@ -184,11 +184,19 @@ class PROXY:
         for index, channel in enumerate(self.channels):
             name = self._channel_name(channel)
             epg_id = self._channel_epg_id(channel, index)
+            logo = channel.get('logo')
+            logo_attribute = ''
+            if logo:
+                logo_attribute = ' tvg-logo="{}"'.format(
+                    self._xml_escape(logo)
+                )
+
             lines.append(
-                '#EXTINF:-1 tvg-id="{}" tvg-name="{}" tvg-chno="{}",{}'.format(
+                '#EXTINF:-1 tvg-id="{}" tvg-name="{}" tvg-chno="{}"{},{}'.format(
                     self._xml_escape(epg_id),
                     self._xml_escape(name),
                     self._channel_number(channel, index),
+                    logo_attribute,
                     name,
                 )
             )
@@ -360,6 +368,11 @@ class PROXY:
             lines.extend([
                 '  <channel id="{}">'.format(self._xml_escape(channel_id)),
                 '    <display-name>{}</display-name>'.format(self._xml_escape(name)),
+                *([
+                    '    <icon src="{}" />'.format(
+                        self._xml_escape(channel['logo'])
+                    )
+                ] if channel.get('logo') else []),
                 '    <lcn>{}</lcn>'.format(self._channel_number(channel, index)),
                 '  </channel>',
             ])
